@@ -4940,6 +4940,9 @@ bool command_event(enum event_command cmd, void *data)
             command_event(CMD_EVENT_NETPLAY_ENABLE_HOST, NULL);
 
          break;
+      case CMD_EVENT_NETPLAY_SYNC:
+         netplay_force_sync();
+         break;
 #else
       case CMD_EVENT_NETPLAY_DEINIT:
       case CMD_EVENT_NETWORK_INIT:
@@ -4953,6 +4956,7 @@ bool command_event(enum event_command cmd, void *data)
       case CMD_EVENT_NETPLAY_GAME_WATCH:
       case CMD_EVENT_NETPLAY_PLAYER_CHAT:
       case CMD_EVENT_NETPLAY_FADE_CHAT_TOGGLE:
+      case CMD_EVENT_NETPLAY_SYNC:
          return false;
 #endif
       case CMD_EVENT_FULLSCREEN_TOGGLE:

@@ -194,6 +194,7 @@ bool init_netplay_deferred(const char *server, unsigned port,
 void deinit_netplay(void);
 
 bool netplay_driver_ctl(enum rarch_netplay_ctl_state state, void *data);
+void netplay_force_sync();
 
 bool netplay_reinit_serialization(void);
 bool netplay_is_spectating(void);

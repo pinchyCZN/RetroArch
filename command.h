@@ -213,6 +213,8 @@ enum event_command
    CMD_EVENT_NETPLAY_PING_TOGGLE,
    /* Toggles netplay hosting. */
    CMD_EVENT_NETPLAY_HOST_TOGGLE,
+   /* Netplay sync. */
+   CMD_EVENT_NETPLAY_SYNC,
    /* Reinitializes audio driver. */
    CMD_EVENT_AUDIO_REINIT,
    /* Resizes windowed scale. Will reinitialize video driver. */

@@ -6013,6 +6013,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
             struct compression_transcoder *ctrans = NULL;
             NETPLAY_ASSERT_MODUS(NETPLAY_MODUS_INPUT_FRAME_SYNC);
 
+            RARCH_LOG(">>NETPLAY_CMD_LOAD_SAVESTATE\n");
             if (netplay->is_server)
             {
                RARCH_ERR("[Netplay] NETPLAY_CMD_LOAD_SAVESTATE from client.\n");
@@ -9397,6 +9398,16 @@ bool netplay_reinit_serialization(void)
    }
 
    return netplay_init_serialization(netplay);
+}
+
+void netplay_force_sync()
+{
+   net_driver_state_t *net_st = &networking_driver_st;
+   netplay_t *netplay         = net_st->data;
+   if(!netplay)
+      return;
+   RARCH_LOG("netplay sync request savestate\n");
+   netplay_cmd_request_savestate(netplay);
 }
 
 /**

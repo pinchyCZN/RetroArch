@@ -3080,7 +3080,7 @@ SmallVector<SpecializationConstant> Compiler::get_specialization_constants() con
 	SmallVector<SpecializationConstant> spec_consts;
 	ir.for_each_typed_id<SPIRConstant>([&](uint32_t, const SPIRConstant &c) {
 		if (c.specialization && has_decoration(c.self, DecorationSpecId))
-			spec_consts.push_back({ c.self, get_decoration(c.self, DecorationSpecId) });
+			spec_consts.push_back({(ConstantID) c.self, get_decoration(c.self, DecorationSpecId)});
 	});
 	return spec_consts;
 }
