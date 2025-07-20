@@ -6013,7 +6013,6 @@ static bool netplay_get_cmd(netplay_t *netplay,
             struct compression_transcoder *ctrans = NULL;
             NETPLAY_ASSERT_MODUS(NETPLAY_MODUS_INPUT_FRAME_SYNC);
 
-            RARCH_LOG(">>NETPLAY_CMD_LOAD_SAVESTATE\n");
             if (netplay->is_server)
             {
                RARCH_ERR("[Netplay] NETPLAY_CMD_LOAD_SAVESTATE from client.\n");
@@ -6092,7 +6091,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
             RECV(netplay->zbuffer, state_size_raw)
                return false;
-
+            RARCH_LOG(">>NETPLAY_CMD_LOAD_SAVESTATE\n");
             switch (connection->compression_supported)
             {
                case NETPLAY_COMPRESSION_ZLIB:
