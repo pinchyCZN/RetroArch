@@ -4,7 +4,7 @@
 
 # RetroArch
 
-This fork contains  anetplay feature to manually force sync by mapped button "="
+This fork of version 1.21 contains a netplay feature to manually force sync by mapped button "="
 Useful for playing with high ping time and frequent sync causes stuttering.
 In this case you set a high sync interval say every 5 mins and manually sync when the other player is noticeably out of sync.
 
