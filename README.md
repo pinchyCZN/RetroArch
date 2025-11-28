@@ -4,6 +4,11 @@
 
 # RetroArch
 
+This fork contains  anetplay feature to manually force sync by mapped button "="
+Useful for playing with high ping time and frequent sync causes stuttering.
+In this case you set a high sync interval say every 5 mins and manually sync when the other player is noticeably out of sync.
+
+
 RetroArch is the reference frontend for the libretro API.
 Popular examples of implementations for this API includes video game system emulators and game engines as well as
 more generalized 3D programs.
