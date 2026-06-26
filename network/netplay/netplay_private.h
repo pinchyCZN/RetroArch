@@ -91,6 +91,9 @@ enum netplay_keys
    NETPLAY_KEY_LAST
 };
 
+/* Words in a NETPLAY_CMD_KEYBOARD key bitmap (see netplay_keys.h) */
+#define NETPLAY_KEYBOARD_WORDS     5
+
 enum netplay_cmd
 {
    /* Basic commands */
@@ -164,6 +167,9 @@ enum netplay_cmd
 
    /* Send a network packet from the raw packet core interface */
    NETPLAY_CMD_NETPACKET      = 0x0048,
+
+   /* SET_KEYBOARD_CALLBACK key bitmap for this frame (protocol v8+) */
+   NETPLAY_CMD_KEYBOARD       = 0x0049,
 
    /* Misc. commands */
 
@@ -330,6 +336,10 @@ struct delta_frame
 
    /* Have we read the real (remote) input? */
    bool have_real[MAX_CLIENTS];
+
+   /* SET_KEYBOARD_CALLBACK bitmap per client (NETPLAY_CMD_KEYBOARD) */
+   uint32_t callback_kb[MAX_CLIENTS][NETPLAY_KEYBOARD_WORDS];
+   bool have_callback_kb[MAX_CLIENTS];
 
    /* A bit derpy, but this is how we know if the delta
     * has been used at all. */
@@ -648,6 +658,12 @@ struct netplay
     * state load, then perform the state load, and the
     * up/down states will proceed as expected. */
    bool have_updown_device;
+
+   /* Local SET_KEYBOARD_CALLBACK key state (current held keys) */
+   uint32_t local_callback_kb[NETPLAY_KEYBOARD_WORDS];
+
+   /* Last remote keyboard bitmap injected per client (for edge detect) */
+   uint32_t applied_callback_kb[MAX_CLIENTS][NETPLAY_KEYBOARD_WORDS];
 
    /* Are we the server? */
    bool is_server;

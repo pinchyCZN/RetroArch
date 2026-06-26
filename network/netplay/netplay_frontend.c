@@ -2060,6 +2060,89 @@ static uint32_t netplay_key_ntoh(netplay_t *netplay, unsigned key)
       RETROK_UNKNOWN;
 }
 
+/* Map a netplay key id to a word/bit in the keyboard bitmap (see get_self_input_state). */
+static void netplay_key_to_bitmap(unsigned nk, unsigned *word, unsigned *bit)
+{
+   *word = nk / 32;
+   *bit  = nk % 32;
+}
+
+static void netplay_callback_kb_set(uint32_t *bitmap, unsigned nk, bool down)
+{
+   unsigned word, bit;
+
+   if (!bitmap || nk == 0 || nk >= NETPLAY_KEY_LAST)
+      return;
+
+   netplay_key_to_bitmap(nk, &word, &bit);
+
+   if (word >= NETPLAY_KEYBOARD_WORDS)
+      return;
+
+   if (down)
+      bitmap[word] |=  (UINT32_C(1) << bit);
+   else
+      bitmap[word] &= ~(UINT32_C(1) << bit);
+}
+
+/**
+ * netplay_apply_remote_keyboard:
+ *
+ * Inject edge transitions from remote clients' keyboard bitmaps into the
+ * core SET_KEYBOARD_CALLBACK handler for this frame.
+ */
+static void netplay_apply_remote_keyboard(netplay_t *netplay, size_t ptr)
+{
+   struct delta_frame *frame = &netplay->buffer[ptr];
+   unsigned client;
+
+   if (     netplay->self_mode != NETPLAY_CONNECTION_PLAYING
+         && netplay->self_mode != NETPLAY_CONNECTION_SLAVE)
+      return;
+
+   for (client = 0; client < MAX_CLIENTS; client++)
+   {
+      unsigned nk;
+
+      if (client == netplay->self_client_num)
+         continue;
+
+      if (!(netplay->connected_players & (1 << client)))
+         continue;
+
+      if (!frame->have_callback_kb[client])
+         continue;
+
+      for (nk = 1; nk < NETPLAY_KEY_LAST; nk++)
+      {
+         unsigned word, bit, retrok;
+         bool prev, curr, down;
+
+         netplay_key_to_bitmap(nk, &word, &bit);
+
+         if (word >= NETPLAY_KEYBOARD_WORDS)
+            break;
+
+         prev = (netplay->applied_callback_kb[client][word] >> bit) & 1;
+         curr = (frame->callback_kb[client][word] >> bit) & 1;
+
+         if (prev == curr)
+            continue;
+
+         retrok = netplay_key_ntoh(netplay, nk);
+         if (retrok == RETROK_UNKNOWN)
+            continue;
+
+         down = curr;
+         netplay_inject_core_keyboard_event(down, retrok, 0, 0);
+      }
+
+      memcpy(netplay->applied_callback_kb[client],
+            frame->callback_kb[client],
+            sizeof(netplay->applied_callback_kb[client]));
+   }
+}
+
 /**
  * netplay_input_keyboard_event:
  *
@@ -2070,8 +2153,16 @@ void netplay_input_keyboard_event(bool down, unsigned code,
       uint32_t character, uint16_t mod)
 {
    net_driver_state_t *net_st = &networking_driver_st;
+   netplay_t *netplay           = (netplay_t*)net_st->data;
+   unsigned nk;
 
-   if (!net_st->data)
+   (void)character;
+   (void)mod;
+
+   if (!netplay)
+      return;
+
+   if (netplay->modus != NETPLAY_MODUS_INPUT_FRAME_SYNC)
       return;
 
 #ifdef HAVE_MENU
@@ -2079,13 +2170,14 @@ void netplay_input_keyboard_event(bool down, unsigned code,
       return;
 #endif
 
-   RARCH_LOG("[Netplay] keyboard: %s key %u (char %u mod %u)\n",
-         down ? "down" : "up  ",
-         code,
-         (unsigned)character,
-         (unsigned)mod);
+   nk = netplay_key_hton(netplay, code);
+   if (nk == NETPLAY_KEY_UNKNOWN)
+      return;
 
-   /* TODO: queue for send_input_frame / remote inject */
+   netplay_callback_kb_set(netplay->local_callback_kb, nk, down);
+
+   RARCH_LOG("[Netplay] keyboard: %s key %u (nk %u)\n",
+         down ? "down" : "up  ", code, nk);
 }
 
 /**
@@ -3982,6 +4074,7 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
       {
          netplay->replay_ptr = PREV_PTR(netplay->replay_ptr);
          netplay->replay_frame_count--;
+         netplay_apply_remote_keyboard(netplay, netplay->replay_ptr);
 #ifdef HAVE_THREADS
          autosave_lock();
 #endif
@@ -4023,6 +4116,7 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
 
          /* Re-simulate this frame's input */
          netplay_resolve_input(netplay, netplay->replay_ptr, true);
+         netplay_apply_remote_keyboard(netplay, netplay->replay_ptr);
 
 #ifdef HAVE_THREADS
          autosave_lock();
@@ -4498,6 +4592,58 @@ static bool send_input_frame(netplay_t *netplay, struct delta_frame *dframe,
 #undef BUFSZ
 }
 
+/* Send SET_KEYBOARD_CALLBACK key bitmap for the specified client/frame */
+static bool send_keyboard_frame(netplay_t *netplay, struct delta_frame *dframe,
+      struct netplay_connection *only, struct netplay_connection *except,
+      uint32_t client_num)
+{
+   uint32_t payload[2 + NETPLAY_KEYBOARD_WORDS];
+   size_t i;
+
+   NETPLAY_ASSERT_MODUS(NETPLAY_MODUS_INPUT_FRAME_SYNC);
+
+   payload[0] = htonl(dframe->frame);
+   payload[1] = htonl(client_num);
+   for (i = 0; i < NETPLAY_KEYBOARD_WORDS; i++)
+      payload[2 + i] = htonl(dframe->callback_kb[client_num][i]);
+
+   if (only)
+   {
+      REQUIRE_PROTOCOL_VERSION(only, 8)
+      {
+         if (!netplay_send_raw_cmd(netplay, only, NETPLAY_CMD_KEYBOARD,
+               payload, sizeof(payload)))
+         {
+            netplay_hangup(netplay, only);
+            return false;
+         }
+      }
+   }
+   else
+   {
+      for (i = 0; i < netplay->connections_size; i++)
+      {
+         struct netplay_connection *connection = &netplay->connections[i];
+
+         if (connection == except)
+            continue;
+
+         if (     (connection->flags & NETPLAY_CONN_FLAG_ACTIVE)
+               && (connection->mode >= NETPLAY_CONNECTION_CONNECTED))
+         {
+            REQUIRE_PROTOCOL_VERSION(connection, 8)
+            {
+               if (!netplay_send_raw_cmd(netplay, connection,
+                     NETPLAY_CMD_KEYBOARD, payload, sizeof(payload)))
+                  netplay_hangup(netplay, connection);
+            }
+         }
+      }
+   }
+
+   return true;
+}
+
 /**
  * netplay_send_cur_input
  *
@@ -4527,6 +4673,12 @@ bool netplay_send_cur_input(netplay_t *netplay,
          {
             if (dframe->have_real[from_client])
             {
+               if (dframe->have_callback_kb[from_client])
+               {
+                  if (!send_keyboard_frame(netplay, dframe, connection,
+                        NULL, from_client, false))
+                     return false;
+               }
                if (!send_input_frame(netplay, dframe, connection, NULL, from_client, false))
                   return false;
             }
@@ -4547,6 +4699,13 @@ bool netplay_send_cur_input(netplay_t *netplay,
    if (netplay->self_mode == NETPLAY_CONNECTION_PLAYING
          || netplay->self_mode == NETPLAY_CONNECTION_SLAVE)
    {
+      if (dframe->have_callback_kb[netplay->self_client_num])
+      {
+         if (!send_keyboard_frame(netplay, dframe, connection, NULL,
+               netplay->self_client_num,
+               netplay->self_mode == NETPLAY_CONNECTION_SLAVE))
+            return false;
+      }
       if (!send_input_frame(netplay, dframe, connection, NULL,
             netplay->self_client_num,
             netplay->self_mode == NETPLAY_CONNECTION_SLAVE))
@@ -5599,6 +5758,102 @@ static bool netplay_get_cmd(netplay_t *netplay,
             RARCH_LOG("[Netplay] Received input from %u\n", client_num);
             print_state(netplay);
 #endif
+            break;
+         }
+
+      case NETPLAY_CMD_KEYBOARD:
+         {
+            REQUIRE_PROTOCOL_VERSION(connection, 8)
+            {
+               uint32_t frame_num, client_num, i;
+               struct delta_frame *dframe;
+               const size_t expected_size =
+                  (2 + NETPLAY_KEYBOARD_WORDS) * sizeof(uint32_t);
+               NETPLAY_ASSERT_MODUS(NETPLAY_MODUS_INPUT_FRAME_SYNC);
+
+               if (cmd_size != expected_size)
+               {
+                  RARCH_ERR("[Netplay] NETPLAY_CMD_KEYBOARD unexpected payload size.\n");
+                  return netplay_cmd_nak(netplay, connection);
+               }
+
+               RECV(&frame_num, sizeof(frame_num))
+                  return false;
+               RECV(&client_num, sizeof(client_num))
+                  return false;
+               frame_num  = ntohl(frame_num);
+               client_num = ntohl(client_num);
+               client_num &= 0xFFFF;
+
+               if (netplay->is_server)
+               {
+                  if (     connection->mode != NETPLAY_CONNECTION_PLAYING
+                        && connection->mode != NETPLAY_CONNECTION_SLAVE)
+                  {
+                     RARCH_ERR("[Netplay] Keyboard input from non-participating player.\n");
+                     return netplay_cmd_nak(netplay, connection);
+                  }
+                  client_num = (uint32_t)(connection - netplay->connections + 1);
+               }
+
+               if (     client_num >= MAX_CLIENTS
+                     || !(netplay->connected_players & (1 << client_num)))
+               {
+                  RARCH_ERR("[Netplay] Invalid NETPLAY_CMD_KEYBOARD player number.\n");
+                  return netplay_cmd_nak(netplay, connection);
+               }
+
+               if (connection->mode == NETPLAY_CONNECTION_PLAYING)
+               {
+                  if (frame_num < netplay->read_frame_count[client_num])
+                  {
+                     for (i = 0; i < NETPLAY_KEYBOARD_WORDS; i++)
+                     {
+                        uint32_t buf;
+                        RECV(&buf, sizeof(buf))
+                           return false;
+                     }
+                     break;
+                  }
+                  else if (frame_num > netplay->read_frame_count[client_num])
+                  {
+                     RARCH_ERR("[Netplay] Netplay keyboard input out of order.\n");
+                     return netplay_cmd_nak(netplay, connection);
+                  }
+               }
+
+               dframe = &netplay->buffer[netplay->read_ptr[client_num]];
+               if (!netplay_delta_frame_ready(netplay, dframe,
+                     netplay->read_frame_count[client_num]))
+                  goto shrt;
+
+               for (i = 0; i < NETPLAY_KEYBOARD_WORDS; i++)
+               {
+                  RECV(&dframe->callback_kb[client_num][i], sizeof(uint32_t))
+                     return false;
+                  dframe->callback_kb[client_num][i] =
+                     ntohl(dframe->callback_kb[client_num][i]);
+               }
+               dframe->have_callback_kb[client_num] = true;
+
+               if (netplay->is_server)
+               {
+                  if (dframe->frame <= netplay->self_frame_count)
+                     send_keyboard_frame(netplay, dframe, NULL,
+                           connection, client_num, false);
+               }
+            }
+            else
+            {
+               unsigned char buf[1024];
+
+               while (cmd_size)
+               {
+                  RECV(buf, (cmd_size > sizeof(buf)) ? sizeof(buf) : cmd_size)
+                     return false;
+                  cmd_size -= recvd;
+               }
+            }
             break;
          }
 
@@ -8188,6 +8443,14 @@ static bool get_self_input_state(
    }
 
    ptr->have_local = true;
+   if (     netplay->self_mode == NETPLAY_CONNECTION_PLAYING
+         || netplay->self_mode == NETPLAY_CONNECTION_SLAVE)
+   {
+      memcpy(ptr->callback_kb[netplay->self_client_num],
+            netplay->local_callback_kb,
+            sizeof(netplay->local_callback_kb));
+      ptr->have_callback_kb[netplay->self_client_num] = true;
+   }
    if (netplay->self_mode == NETPLAY_CONNECTION_PLAYING)
    {
       ptr->have_real[netplay->self_client_num]            = true;
@@ -8255,6 +8518,9 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
 
    /* Resolve and/or simulate the input if we don't have real input. */
    netplay_resolve_input(netplay, netplay->run_ptr, false);
+
+   /* Inject remote SET_KEYBOARD_CALLBACK edges for this run frame. */
+   netplay_apply_remote_keyboard(netplay, netplay->run_ptr);
 
    /* Handle slaves. */
    if (netplay->is_server && netplay->connected_slaves)
