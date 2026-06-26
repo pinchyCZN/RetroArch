@@ -2213,6 +2213,7 @@ static struct config_bool_setting *populate_settings_bool(
    SETTING_BOOL("netplay_show_passworded",       &settings->bools.netplay_show_passworded, true, DEFAULT_NETPLAY_SHOW_PASSWORDED, false);
    SETTING_BOOL("netplay_public_announce",       &settings->bools.netplay_public_announce, true, DEFAULT_NETPLAY_PUBLIC_ANNOUNCE, false);
    SETTING_BOOL("netplay_start_as_spectator",    &settings->bools.netplay_start_as_spectator, false, DEFAULT_NETPLAY_START_AS_SPECTATOR, false);
+   SETTING_BOOL("netplay_lockstep_mode",         &settings->bools.netplay_lockstep_mode, true, DEFAULT_NETPLAY_LOCKSTEP_MODE, false);
    SETTING_BOOL("netplay_nat_traversal",         &settings->bools.netplay_nat_traversal, true, true, false);
    SETTING_BOOL("netplay_fade_chat",             &settings->bools.netplay_fade_chat, true, DEFAULT_NETPLAY_FADE_CHAT, false);
    SETTING_BOOL("netplay_allow_pausing",         &settings->bools.netplay_allow_pausing, true, DEFAULT_NETPLAY_ALLOW_PAUSING, false);

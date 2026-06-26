@@ -2585,6 +2585,10 @@ MSG_HASH(
    "netplay_start_as_spectator"
    )
 MSG_HASH(
+   MENU_ENUM_LABEL_NETPLAY_LOCKSTEP_MODE,
+   "netplay_lockstep_mode"
+   )
+MSG_HASH(
    MENU_ENUM_LABEL_NETPLAY_FADE_CHAT,
    "netplay_fade_chat"
    )

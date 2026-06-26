@@ -22710,6 +22710,21 @@ static bool setting_append_list(
 
             CONFIG_BOOL(
                   list, list_info,
+                  &settings->bools.netplay_lockstep_mode,
+                  MENU_ENUM_LABEL_NETPLAY_LOCKSTEP_MODE,
+                  MENU_ENUM_LABEL_VALUE_NETPLAY_LOCKSTEP_MODE,
+                  DEFAULT_NETPLAY_LOCKSTEP_MODE,
+                  MENU_ENUM_LABEL_VALUE_OFF,
+                  MENU_ENUM_LABEL_VALUE_ON,
+                  &group_info,
+                  &subgroup_info,
+                  parent_group,
+                  general_write_handler,
+                  general_read_handler,
+                  SD_FLAG_NONE);
+
+            CONFIG_BOOL(
+                  list, list_info,
                   &settings->bools.netplay_fade_chat,
                   MENU_ENUM_LABEL_NETPLAY_FADE_CHAT,
                   MENU_ENUM_LABEL_VALUE_NETPLAY_FADE_CHAT,

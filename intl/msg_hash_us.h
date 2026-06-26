@@ -7683,6 +7683,14 @@ MSG_HASH(
    "Whether to start netplay in spectator mode. If set to true, netplay will be in spectator mode on start. It's always possible to change mode later."
    )
 MSG_HASH(
+   MENU_ENUM_LABEL_VALUE_NETPLAY_LOCKSTEP_MODE,
+   "Netplay Lockstep Mode"
+   )
+MSG_HASH(
+   MENU_ENUM_SUBLABEL_NETPLAY_LOCKSTEP_MODE,
+   "Use strict lockstep netplay without input prediction, rollback replay, or catch-up fast-forward."
+   )
+MSG_HASH(
    MENU_ENUM_LABEL_VALUE_NETPLAY_FADE_CHAT,
    "Fade Chat"
    )

@@ -1319,6 +1319,9 @@
 /* Start netplay in spectator mode */
 #define DEFAULT_NETPLAY_START_AS_SPECTATOR false
 
+/* Use strict lockstep netplay (no prediction, rollback, or catch-up) */
+#define DEFAULT_NETPLAY_LOCKSTEP_MODE false
+
 /* Netplay chat fading toggle */
 #define DEFAULT_NETPLAY_FADE_CHAT true
 

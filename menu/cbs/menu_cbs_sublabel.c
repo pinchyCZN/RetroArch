@@ -917,6 +917,7 @@ DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_max_ping,              MENU_
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_password,              MENU_ENUM_SUBLABEL_NETPLAY_PASSWORD)
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_spectate_password,     MENU_ENUM_SUBLABEL_NETPLAY_SPECTATE_PASSWORD)
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_start_as_spectator,    MENU_ENUM_SUBLABEL_NETPLAY_START_AS_SPECTATOR)
+DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_lockstep_mode,         MENU_ENUM_SUBLABEL_NETPLAY_LOCKSTEP_MODE)
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_fade_chat,             MENU_ENUM_SUBLABEL_NETPLAY_FADE_CHAT)
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_chat_color_name,       MENU_ENUM_SUBLABEL_NETPLAY_CHAT_COLOR_NAME)
 DEFAULT_SUBLABEL_MACRO(action_bind_sublabel_netplay_chat_color_msg,        MENU_ENUM_SUBLABEL_NETPLAY_CHAT_COLOR_MSG)
@@ -3725,6 +3726,9 @@ int menu_cbs_init_bind_sublabel(menu_file_list_cbs_t *cbs,
             break;
          case MENU_ENUM_LABEL_NETPLAY_START_AS_SPECTATOR:
             BIND_ACTION_SUBLABEL(cbs, action_bind_sublabel_netplay_start_as_spectator);
+            break;
+         case MENU_ENUM_LABEL_NETPLAY_LOCKSTEP_MODE:
+            BIND_ACTION_SUBLABEL(cbs, action_bind_sublabel_netplay_lockstep_mode);
             break;
          case MENU_ENUM_LABEL_NETPLAY_FADE_CHAT:
             BIND_ACTION_SUBLABEL(cbs, action_bind_sublabel_netplay_fade_chat);

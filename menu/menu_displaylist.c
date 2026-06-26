@@ -8944,6 +8944,7 @@ unsigned menu_displaylist_build_list(
                {MENU_ENUM_LABEL_NETPLAY_PASSWORD,                   PARSE_ONLY_STRING, true},
                {MENU_ENUM_LABEL_NETPLAY_SPECTATE_PASSWORD,          PARSE_ONLY_STRING, true},
                {MENU_ENUM_LABEL_NETPLAY_START_AS_SPECTATOR,         PARSE_ONLY_BOOL,   true},
+               {MENU_ENUM_LABEL_NETPLAY_LOCKSTEP_MODE,              PARSE_ONLY_BOOL,   true},
                {MENU_ENUM_LABEL_NETPLAY_FADE_CHAT,                  PARSE_ONLY_BOOL,   true},
                {MENU_ENUM_LABEL_NETPLAY_CHAT_COLOR_NAME,            PARSE_ONLY_UINT,   true},
                {MENU_ENUM_LABEL_NETPLAY_CHAT_COLOR_MSG,             PARSE_ONLY_UINT,   true},

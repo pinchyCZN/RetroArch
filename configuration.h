@@ -900,6 +900,7 @@ typedef struct settings
       bool netplay_show_passworded;
       bool netplay_public_announce;
       bool netplay_start_as_spectator;
+      bool netplay_lockstep_mode;
       bool netplay_fade_chat;
       bool netplay_allow_pausing;
       bool netplay_allow_slaves;
