@@ -686,6 +686,7 @@ struct netplay
 
    /* Host settings */
    bool allow_pausing;
+   bool lockstep_mode;
 };
 
 void video_frame_net(const void *data,

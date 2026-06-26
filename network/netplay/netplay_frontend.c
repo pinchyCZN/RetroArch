@@ -2740,6 +2740,24 @@ static bool netplay_cmd_stall(netplay_t *netplay,
 #endif
 
 /**
+ * netplay_lockstep_strict
+ *
+ * Returns true when lockstep gameplay restrictions apply.
+ * Savestate resync/replay uses the normal netplay paths.
+ */
+static bool netplay_lockstep_strict(netplay_t *netplay)
+{
+   if (!netplay->lockstep_mode)
+      return false;
+
+   if (netplay->force_rewind || netplay->force_send_savestate
+         || netplay->savestate_request_outstanding || netplay->is_replay)
+      return false;
+
+   return true;
+}
+
+/**
  * netplay_update_unread_ptr
  *
  * Update the global unread_ptr and unread_frame_count to correspond to the
@@ -2811,7 +2829,8 @@ netplay_input_state_t netplay_device_client_state(netplay_t *netplay,
             dsize, false, true);
    if (simstate)
       return simstate;
-   if (netplay->read_frame_count[client] > simframe->frame)
+   if (netplay_lockstep_strict(netplay)
+         || netplay->read_frame_count[client] > simframe->frame)
       return NULL;
    return netplay_input_state_for(&simframe->simulated_input[device],
          client, dsize, false, true);
@@ -3086,7 +3105,8 @@ static bool netplay_resolve_input(netplay_t *netplay,
          {
             /* Don't already have this input, so must
              * simulate if we're supposed to have it at all */
-            if (netplay->read_frame_count[client] > simframe->frame)
+            if (netplay_lockstep_strict(netplay)
+                  || netplay->read_frame_count[client] > simframe->frame)
                continue;
             simstate = netplay_input_state_for(
                &simframe->simulated_input[device],
@@ -3704,8 +3724,7 @@ static bool netplay_sync_pre_frame(netplay_t *netplay)
 
          if (netplay_build_savestate(netplay, &serial_info, false))
          {
-            if (netplay->force_send_savestate && !netplay->stall &&
-                  !netplay->remote_paused)
+            if (netplay->force_send_savestate && !netplay->remote_paused)
             {
                /* Bring our running frame and input frames into
                 * parity so we don't send old info. */
@@ -3861,7 +3880,7 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
    netplay->replay_frame_count = netplay->other_frame_count;
 
 #ifndef DEBUG_NONDETERMINISTIC_CORES
-   if (!netplay->force_rewind)
+   if (!netplay_lockstep_strict(netplay) && !netplay->force_rewind)
    {
       bool cont = true;
 
@@ -3901,7 +3920,8 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
 
    /* Now replay the real input if we've gotten ahead of it */
    if (netplay->force_rewind ||
-       netplay->replay_frame_count < netplay->run_frame_count)
+       (!netplay_lockstep_strict(netplay) &&
+        netplay->replay_frame_count < netplay->run_frame_count))
    {
       retro_ctx_serialize_info_t serial_info;
 
@@ -4011,6 +4031,13 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
       netplay->is_replay            = false;
       netplay->force_rewind         = false;
    }
+   else if (netplay_lockstep_strict(netplay))
+   {
+      netplay->other_ptr          = netplay->run_ptr;
+      netplay->other_frame_count  = netplay->run_frame_count;
+      netplay->replay_ptr         = netplay->run_ptr;
+      netplay->replay_frame_count = netplay->run_frame_count;
+   }
 
    if (netplay->is_server)
    {
@@ -4031,7 +4058,17 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
       lo_frame_count = hi_frame_count = netplay->server_frame_count;
 
    /* If we're behind, try to catch up */
-   if (netplay->catch_up)
+   if (netplay->lockstep_mode)
+   {
+      if (netplay->catch_up)
+      {
+         netplay->catch_up             = false;
+         input_state_get_ptr()->flags &= ~INP_FLAG_NONBLOCKING;
+         driver_set_nonblock_state();
+      }
+      netplay->catch_up_time = 0;
+   }
+   else if (netplay->catch_up)
    {
       /* Are we caught up? */
       if (netplay->self_frame_count + 1 >= lo_frame_count)
@@ -6569,6 +6606,8 @@ static bool netplay_get_cmd(netplay_t *netplay,
                return false;
             netplay->input_latency_frames_min = ntohl(frames[0]);
             netplay->input_latency_frames_max = ntohl(frames[1]);
+            if (netplay->lockstep_mode)
+               netplay->input_latency_frames = netplay->input_latency_frames_min;
          }
          break;
 
@@ -7340,6 +7379,11 @@ static netplay_t *netplay_new(const char *server, const char *mitm,
 
    netplay_key_init(netplay);
 
+   {
+      settings_t *settings = config_get_ptr();
+      netplay->lockstep_mode = settings->bools.netplay_lockstep_mode;
+   }
+
    if (netplay->is_server)
    {
       unsigned i;
@@ -7384,6 +7428,9 @@ static netplay_t *netplay_new(const char *server, const char *mitm,
       netplay->input_latency_frames_max =
          netplay->input_latency_frames_min +
          settings->uints.netplay_input_latency_frames_range;
+
+      if (netplay->lockstep_mode)
+         netplay->input_latency_frames = netplay->input_latency_frames_min;
    }
    else
    {
@@ -8170,7 +8217,7 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
 
    /* Figure out how many frames of input latency we should be using to
       hide network latency. */
-   if (netplay->frame_run_time_avg)
+   if (!netplay->lockstep_mode && netplay->frame_run_time_avg)
    {
       /* FIXME: Using fixed 60fps for this calculation */
       unsigned frames_per_frame    = netplay->frame_run_time_avg ?
@@ -8206,7 +8253,23 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
    switch (netplay->stall)
    {
       case NETPLAY_STALL_RUNNING_FAST:
-         if ((netplay->unread_frame_count + NETPLAY_MAX_STALL_FRAMES - 2) >
+         if (netplay->lockstep_mode)
+         {
+            if (netplay->unread_frame_count > netplay->run_frame_count)
+            {
+               struct netplay_connection *connection;
+
+               for (i = 0; i < netplay->connections_size; i++)
+               {
+                  connection = &netplay->connections[i];
+                  if (connection->flags & NETPLAY_CONN_FLAG_ACTIVE)
+                     connection->stall = NETPLAY_STALL_NONE;
+               }
+
+               netplay->stall = NETPLAY_STALL_NONE;
+            }
+         }
+         else if ((netplay->unread_frame_count + NETPLAY_MAX_STALL_FRAMES - 2) >
                netplay->self_frame_count)
          {
             struct netplay_connection *connection;
@@ -8273,6 +8336,14 @@ static bool netplay_poll(netplay_t *netplay, bool block_libretro_input)
             {
                netplay->stall      = NETPLAY_STALL_INPUT_LATENCY;
                netplay->stall_time = 0;
+            }
+            /* Wait for all peers' input before advancing. */
+            else if (netplay_lockstep_strict(netplay)
+                  && !(netplay->is_server && netplay->connected_players <= 1)
+                  && netplay->unread_frame_count <= netplay->run_frame_count)
+            {
+               netplay->stall      = NETPLAY_STALL_RUNNING_FAST;
+               netplay->stall_time = cpu_features_get_time_usec();
             }
             break;
          default:
