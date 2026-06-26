@@ -196,6 +196,12 @@ void deinit_netplay(void);
 bool netplay_driver_ctl(enum rarch_netplay_ctl_state state, void *data);
 void netplay_force_sync();
 
+/* Keyboard events via input_keyboard_event() (not pointer swapping) */
+void netplay_input_keyboard_event(bool down, unsigned code,
+      uint32_t character, uint16_t mod);
+void netplay_inject_core_keyboard_event(bool down, unsigned code,
+      uint32_t character, uint16_t mod);
+
 bool netplay_reinit_serialization(void);
 bool netplay_is_spectating(void);
 void netplay_force_send_savestate(void);

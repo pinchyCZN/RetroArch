@@ -38,6 +38,7 @@
 #ifdef HAVE_NETWORKING
 #include <net/net_compat.h>
 #include <net/net_socket.h>
+#include "../network/netplay/netplay.h"
 #endif
 
 #ifdef HAVE_MENU
@@ -7661,6 +7662,9 @@ void input_keyboard_event(bool down, unsigned code,
                      code, character);
 #endif
          }
+#ifdef HAVE_NETWORKING
+         netplay_input_keyboard_event(down, code, character, mod);
+#endif
          (*key_event)(down, code, character, mod);
       }
    }

@@ -2060,6 +2060,53 @@ static uint32_t netplay_key_ntoh(netplay_t *netplay, unsigned key)
       RETROK_UNKNOWN;
 }
 
+/**
+ * netplay_input_keyboard_event:
+ *
+ * Observe local keyboard events on the way to the core callback.
+ * Called from input_keyboard_event(); does not replace key_event.
+ */
+void netplay_input_keyboard_event(bool down, unsigned code,
+      uint32_t character, uint16_t mod)
+{
+   net_driver_state_t *net_st = &networking_driver_st;
+
+   if (!net_st->data)
+      return;
+
+#ifdef HAVE_MENU
+   if (menu_state_get_ptr()->flags & MENU_ST_FLAG_ALIVE)
+      return;
+#endif
+
+   RARCH_LOG("[Netplay] keyboard: %s key %u (char %u mod %u)\n",
+         down ? "down" : "up  ",
+         code,
+         (unsigned)character,
+         (unsigned)mod);
+
+   /* TODO: queue for send_input_frame / remote inject */
+}
+
+/**
+ * netplay_inject_core_keyboard_event:
+ *
+ * Deliver a keyboard event to the core handler registered via
+ * SET_KEYBOARD_CALLBACK. Uses frontend_key_event, which RetroArch
+ * already preserves across menu toggles.
+ */
+void netplay_inject_core_keyboard_event(bool down, unsigned code,
+      uint32_t character, uint16_t mod)
+{
+   runloop_state_t *runloop_st = runloop_state_get_ptr();
+   retro_keyboard_event_t core = runloop_st->frontend_key_event;
+
+   if (!core)
+      core = runloop_st->key_event;
+   if (core)
+      core(down, code, character, mod);
+}
+
 static void clear_input(netplay_input_state_t istate)
 {
    while (istate)
