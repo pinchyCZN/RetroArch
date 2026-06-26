@@ -2175,9 +2175,6 @@ void netplay_input_keyboard_event(bool down, unsigned code,
       return;
 
    netplay_callback_kb_set(netplay->local_callback_kb, nk, down);
-
-   RARCH_LOG("[Netplay] keyboard: %s key %u (nk %u)\n",
-         down ? "down" : "up  ", code, nk);
 }
 
 /**
@@ -3368,6 +3365,58 @@ static bool netplay_resolve_input(netplay_t *netplay,
    return ret;
 }
 
+static void netplay_show_chat(netplay_t *netplay, const char *nick, const char *msg)
+{
+   char formatted_chat[NETPLAY_CHAT_MAX_SIZE];
+
+   /* Truncate the message if necessary.
+      Truncation here is intentional. */
+#ifdef GEKKO
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+   size_t _len = snprintf(formatted_chat, sizeof(formatted_chat), "%s: %s", nick, msg);
+#ifdef GEKKO
+#pragma GCC diagnostic pop
+#endif
+
+   RARCH_LOG("[Netplay] %s\n", formatted_chat);
+
+#ifdef HAVE_GFX_WIDGETS
+   if (gfx_widgets_ready())
+   {
+      int i;
+      struct netplay_chat *chat = &netplay->chat;
+
+      /* Get rid of the oldest message, while moving the rest up. */
+      for (i = ARRAY_SIZE(chat->messages) - 2; i >= 0; i--)
+         memcpy(&chat->messages[i+1], &chat->messages[i],
+            sizeof(*chat->messages));
+
+      chat->messages[0].frames = NETPLAY_CHAT_FRAME_TIME;
+      strlcpy(chat->messages[0].nick, nick, sizeof(chat->messages[0].nick));
+      strlcpy(chat->messages[0].msg, msg, sizeof(chat->messages[0].msg));
+   }
+   else
+#endif
+      runloop_msg_queue_push(formatted_chat, _len, 1, NETPLAY_CHAT_FRAME_TIME, false,
+         NULL, MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
+}
+
+static void netplay_notify_desync(netplay_t *netplay, uint32_t frame)
+{
+   char msg[64];
+
+   msg[0] = '\0';
+   if (frame)
+      snprintf(msg, sizeof(msg), "Out of sync (frame %u)", (unsigned)frame);
+   else
+      strlcpy(msg, "Out of sync", sizeof(msg));
+
+   RARCH_WARN("[Netplay] Netplay CRCs mismatch!\n");
+   netplay_show_chat(netplay, "!", msg);
+}
+
 static void netplay_handle_frame_hash(netplay_t *netplay,
       struct delta_frame *delta)
 {
@@ -3401,8 +3450,8 @@ static void netplay_handle_frame_hash(netplay_t *netplay,
 
             if (netplay->check_frames)
                netplay_cmd_request_savestate(netplay);
-            else
-               RARCH_WARN("[Netplay] Netplay CRCs mismatch!\n");
+
+            netplay_notify_desync(netplay, delta->frame);
          }
          else
             netplay->crc_validity_checked = true;
@@ -5360,44 +5409,6 @@ static void netplay_relay_chat(netplay_t *netplay, const char *nick, const char 
    /* We don't flush. Chat is not time essential. */
 }
 
-static void netplay_show_chat(netplay_t *netplay, const char *nick, const char *msg)
-{
-   char formatted_chat[NETPLAY_CHAT_MAX_SIZE];
-
-   /* Truncate the message if necessary.
-      Truncation here is intentional. */
-#ifdef GEKKO
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-#endif
-   size_t _len = snprintf(formatted_chat, sizeof(formatted_chat), "%s: %s", nick, msg);
-#ifdef GEKKO
-#pragma GCC diagnostic pop
-#endif
-
-   RARCH_LOG("[Netplay] %s\n", formatted_chat);
-
-#ifdef HAVE_GFX_WIDGETS
-   if (gfx_widgets_ready())
-   {
-      int i;
-      struct netplay_chat *chat = &netplay->chat;
-
-      /* Get rid of the oldest message, while moving the rest up. */
-      for (i = ARRAY_SIZE(chat->messages) - 2; i >= 0; i--)
-         memcpy(&chat->messages[i+1], &chat->messages[i],
-            sizeof(*chat->messages));
-
-      chat->messages[0].frames = NETPLAY_CHAT_FRAME_TIME;
-      strlcpy(chat->messages[0].nick, nick, sizeof(chat->messages[0].nick));
-      strlcpy(chat->messages[0].msg, msg, sizeof(chat->messages[0].msg));
-   }
-   else
-#endif
-      runloop_msg_queue_push(formatted_chat, _len, 1, NETPLAY_CHAT_FRAME_TIME, false,
-         NULL, MESSAGE_QUEUE_ICON_DEFAULT, MESSAGE_QUEUE_CATEGORY_INFO);
-}
-
 #ifdef HAVE_MENU
 static bool netplay_chat_check(netplay_t *netplay)
 {
@@ -6325,7 +6336,10 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
                /* Problem! */
                if (buffer[1] != local_crc)
+               {
                   netplay_cmd_request_savestate(netplay);
+                  netplay_notify_desync(netplay, buffer[0]);
+               }
             }
             /* We'll have to check it when we catch up */
             else
