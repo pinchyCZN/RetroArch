@@ -1812,6 +1812,7 @@ static bool netplay_handshake_pre_sync(netplay_t *netplay,
    netplay->self_frame_count = netplay->run_frame_count =
       netplay->other_frame_count = netplay->unread_frame_count =
       netplay->server_frame_count = new_frame_count;
+   netplay->last_auto_resync_frame = 0;
 
    /* And clear out the framebuffer */
    if (!clear_framebuffer(netplay))
@@ -2858,6 +2859,26 @@ static bool netplay_cmd_request_savestate(netplay_t *netplay)
 }
 
 /**
+ * netplay_client_may_auto_resync
+ *
+ * Client-only: true when automatic savestate resync is allowed.
+ * check_frames is the minimum frame distance since the last completed resync.
+ */
+static bool netplay_client_may_auto_resync(netplay_t *netplay)
+{
+   uint32_t elapsed;
+
+   if (netplay->is_server || !netplay->check_frames)
+      return false;
+
+   if (!netplay->last_auto_resync_frame)
+      return true;
+
+   elapsed = netplay->self_frame_count - netplay->last_auto_resync_frame;
+   return elapsed >= netplay->check_frames;
+}
+
+/**
  * netplay_cmd_stall
  *
  * Send a stall command.
@@ -3417,6 +3438,14 @@ static void netplay_notify_desync(netplay_t *netplay, uint32_t frame)
    netplay_show_chat(netplay, "!", msg);
 }
 
+static void netplay_client_desync(netplay_t *netplay, uint32_t frame)
+{
+   netplay_notify_desync(netplay, frame);
+
+   if (netplay_client_may_auto_resync(netplay))
+      netplay_cmd_request_savestate(netplay);
+}
+
 static void netplay_handle_frame_hash(netplay_t *netplay,
       struct delta_frame *delta)
 {
@@ -3448,10 +3477,7 @@ static void netplay_handle_frame_hash(netplay_t *netplay,
                return;
             }
 
-            if (netplay->check_frames)
-               netplay_cmd_request_savestate(netplay);
-
-            netplay_notify_desync(netplay, delta->frame);
+            netplay_client_desync(netplay, delta->frame);
          }
          else
             netplay->crc_validity_checked = true;
@@ -6336,10 +6362,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
                /* Problem! */
                if (buffer[1] != local_crc)
-               {
-                  netplay_cmd_request_savestate(netplay);
-                  netplay_notify_desync(netplay, buffer[0]);
-               }
+                  netplay_client_desync(netplay, buffer[0]);
             }
             /* We'll have to check it when we catch up */
             else
@@ -6540,6 +6563,7 @@ static bool netplay_get_cmd(netplay_t *netplay,
             netplay->savestate_request_outstanding = false;
             netplay->other_ptr                     = load_ptr;
             netplay->other_frame_count             = load_frame_count;
+            netplay->last_auto_resync_frame        = load_frame_count;
 
             break;
          }

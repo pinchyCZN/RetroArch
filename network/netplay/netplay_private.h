@@ -608,6 +608,9 @@ struct netplay
    /* Frequency with which to check CRCs */
    uint32_t check_frames;
 
+   /* Client: frame of last completed auto resync (0 = none yet) */
+   uint32_t last_auto_resync_frame;
+
    /* How far behind did we fall? */
    uint32_t catch_up_behind;
 
