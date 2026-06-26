@@ -2829,6 +2829,9 @@ static bool netplay_cmd_crc(netplay_t *netplay, struct delta_frame *delta)
    payload[0]   = htonl(delta->frame);
    payload[1]   = htonl(delta->crc);
 
+   RARCH_LOG("[Netplay] CRC sent for frame %u (0x%08X)\n",
+         (unsigned)delta->frame, (unsigned)delta->crc);
+
    for (i = 0; i < netplay->connections_size; i++)
    {
       if (     (netplay->connections[i].flags & NETPLAY_CONN_FLAG_ACTIVE)
@@ -4253,6 +4256,18 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
       netplay->other_frame_count  = netplay->run_frame_count;
       netplay->replay_ptr         = netplay->run_ptr;
       netplay->replay_frame_count = netplay->run_frame_count;
+
+#ifndef DEBUG_NONDETERMINISTIC_CORES
+      /* Lockstep skips replay but still needs periodic CRC checks. */
+      if (!stalled)
+      {
+         struct delta_frame *ptr =
+            &netplay->buffer[PREV_PTR(netplay->run_ptr)];
+
+         if (ptr->used)
+            netplay_handle_frame_hash(netplay, ptr);
+      }
+#endif
    }
 
    if (netplay->is_server)
@@ -6332,6 +6347,9 @@ static bool netplay_get_cmd(netplay_t *netplay,
             buffer[0] = ntohl(buffer[0]);
             buffer[1] = ntohl(buffer[1]);
 
+            RARCH_LOG("[Netplay] CRC received for frame %u (0x%08X)\n",
+                  (unsigned)buffer[0], (unsigned)buffer[1]);
+
             /* Received a CRC for some frame. If we still have it, check if it
              * matched. This approach could be improved with some quick modular
              * arithmetic. */
@@ -6349,7 +6367,11 @@ static bool netplay_get_cmd(netplay_t *netplay,
 
             /* Oh well, we got rid of it! */
             if (!found)
+            {
+               RARCH_LOG("[Netplay] CRC for frame %u not in buffer (dropped)\n",
+                     (unsigned)buffer[0]);
                break;
+            }
 
             if (buffer[0] <= netplay->other_frame_count)
             {
@@ -6360,13 +6382,21 @@ static bool netplay_get_cmd(netplay_t *netplay,
                   local_crc       = netplay_delta_frame_crc(
                         netplay, &netplay->buffer[tmp_ptr]);
 
+               RARCH_LOG("[Netplay] CRC compare frame %u: remote 0x%08X local 0x%08X\n",
+                     (unsigned)buffer[0], (unsigned)buffer[1],
+                     (unsigned)local_crc);
+
                /* Problem! */
                if (buffer[1] != local_crc)
                   netplay_client_desync(netplay, buffer[0]);
             }
             /* We'll have to check it when we catch up */
             else
+            {
+               RARCH_LOG("[Netplay] CRC for frame %u stored for later compare\n",
+                     (unsigned)buffer[0]);
                netplay->buffer[tmp_ptr].crc = buffer[1];
+            }
 
             break;
          }
