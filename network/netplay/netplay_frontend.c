@@ -2273,6 +2273,34 @@ static const uint8_t* netplay_get_savestate_coremem(netplay_t* netplay, const ui
    return input;
 }
 
+static uint32_t netplay_savestate_coremem_crc(netplay_t *netplay,
+      const uint8_t *savestate_buf)
+{
+   const uint8_t *coremem;
+
+   if (!netplay->coremem_size || !savestate_buf)
+      return 0;
+
+   coremem = netplay_get_savestate_coremem(netplay, savestate_buf);
+   return encoding_crc32(0L, coremem, netplay->coremem_size);
+}
+
+static uint32_t netplay_live_coremem_crc(netplay_t *netplay)
+{
+   retro_ctx_serialize_info_t info = {0};
+
+   if (!netplay->coremem_size || !netplay->zbuffer
+         || netplay->coremem_size > netplay->zbuffer_size)
+      return 0;
+
+   info.data = netplay->zbuffer;
+   info.size = netplay->coremem_size;
+   if (!core_serialize_special(&info))
+      return 0;
+
+   return encoding_crc32(0L, info.data, netplay->coremem_size);
+}
+
 /**
  * netplay_delta_frame_crc
  *
@@ -2281,13 +2309,9 @@ static const uint8_t* netplay_get_savestate_coremem(netplay_t* netplay, const ui
 static uint32_t netplay_delta_frame_crc(netplay_t *netplay,
       struct delta_frame *delta)
 {
-   const uint8_t* input;
-
    NETPLAY_ASSERT_MODUS(NETPLAY_MODUS_INPUT_FRAME_SYNC);
-   input = netplay_get_savestate_coremem(netplay,
-      (const uint8_t*)delta->state);
-
-   return encoding_crc32(0L, input, netplay->coremem_size);
+   return netplay_savestate_coremem_crc(netplay,
+         (const uint8_t*)delta->state);
 }
 
 /*
@@ -2828,9 +2852,6 @@ static bool netplay_cmd_crc(netplay_t *netplay, struct delta_frame *delta)
 
    payload[0]   = htonl(delta->frame);
    payload[1]   = htonl(delta->crc);
-
-   RARCH_LOG("[Netplay] CRC sent for frame %u (0x%08X)\n",
-         (unsigned)delta->frame, (unsigned)delta->crc);
 
    for (i = 0; i < netplay->connections_size; i++)
    {
@@ -3459,6 +3480,9 @@ static void netplay_handle_frame_hash(netplay_t *netplay,
       {
          delta->crc = netplay->state_size ?
             netplay_delta_frame_crc(netplay, delta) : 0;
+         RARCH_LOG("[Netplay] CRC send frame %u coremem=0x%08X (run=%u)\n",
+               (unsigned)delta->frame, (unsigned)delta->crc,
+               (unsigned)netplay->run_frame_count);
          netplay_cmd_crc(netplay, delta);
       }
    }
@@ -3479,6 +3503,12 @@ static void netplay_handle_frame_hash(netplay_t *netplay,
                netplay->crcs_valid = false;
                return;
             }
+
+            RARCH_LOG("[Netplay] CRC deferred mismatch frame %u: remote 0x%08X local 0x%08X (other=%u run=%u)\n",
+                  (unsigned)delta->frame, (unsigned)delta->crc,
+                  (unsigned)local_crc,
+                  (unsigned)netplay->other_frame_count,
+                  (unsigned)netplay->run_frame_count);
 
             netplay_client_desync(netplay, delta->frame);
          }
@@ -4173,6 +4203,10 @@ static void netplay_sync_input_post_frame(netplay_t *netplay, bool stalled)
       serial_info.size       = netplay->state_size;
       if (!netplay_process_savestate(netplay, &serial_info))
          RARCH_ERR("[Netplay] Netplay savestate loading failed: Prepare for desync!\n");
+      else
+         RARCH_LOG("[Netplay] Savestate apply CRC frame %u coremem=0x%08X\n",
+               (unsigned)netplay->replay_frame_count,
+               (unsigned)netplay_live_coremem_crc(netplay));
 
       while (netplay->replay_frame_count < netplay->run_frame_count)
       {
@@ -6373,18 +6407,22 @@ static bool netplay_get_cmd(netplay_t *netplay,
                break;
             }
 
-            if (buffer[0] <= netplay->other_frame_count)
+            if (buffer[0] < netplay->other_frame_count)
             {
-               /* We've already replayed up to this frame, so we can check it
-                * directly */
+               /* We've finished simulating this frame, so check it directly.
+                * (Strictly less than: when other_frame_count == frame, that
+                * frame is still in progress — e.g. lockstep hashes frame F
+                * only after other_frame_count advances past F.) */
                uint32_t local_crc = 0;
                if (netplay->state_size)
                   local_crc       = netplay_delta_frame_crc(
                         netplay, &netplay->buffer[tmp_ptr]);
 
-               RARCH_LOG("[Netplay] CRC compare frame %u: remote 0x%08X local 0x%08X\n",
+               RARCH_LOG("[Netplay] CRC compare frame %u: remote 0x%08X local 0x%08X (other=%u run=%u)\n",
                      (unsigned)buffer[0], (unsigned)buffer[1],
-                     (unsigned)local_crc);
+                     (unsigned)local_crc,
+                     (unsigned)netplay->other_frame_count,
+                     (unsigned)netplay->run_frame_count);
 
                /* Problem! */
                if (buffer[1] != local_crc)
@@ -6393,8 +6431,10 @@ static bool netplay_get_cmd(netplay_t *netplay,
             /* We'll have to check it when we catch up */
             else
             {
-               RARCH_LOG("[Netplay] CRC for frame %u stored for later compare\n",
-                     (unsigned)buffer[0]);
+               RARCH_LOG("[Netplay] CRC for frame %u stored for later compare (other=%u run=%u)\n",
+                     (unsigned)buffer[0],
+                     (unsigned)netplay->other_frame_count,
+                     (unsigned)netplay->run_frame_count);
                netplay->buffer[tmp_ptr].crc = buffer[1];
             }
 
@@ -6529,6 +6569,11 @@ static bool netplay_get_cmd(netplay_t *netplay,
             ctrans->decompression_backend->trans(
                ctrans->decompression_stream,
                true, &rd, &wn, NULL);
+
+            RARCH_LOG("[Netplay] Savestate recv CRC frame %u coremem=0x%08X\n",
+                  (unsigned)frame,
+                  (unsigned)netplay_savestate_coremem_crc(netplay,
+                        (const uint8_t*)netplay->buffer[load_ptr].state));
 
             if (memcmp(netplay->buffer[load_ptr].state, "NETPLAY", 7) != 0)
             {
@@ -8245,6 +8290,14 @@ void netplay_load_savestate(netplay_t *netplay,
    /* Don't send it if we're expected to be desynced. */
    if (!netplay->desync)
    {
+      const uint8_t *savestate_buf = serial_info->data_const
+         ? (const uint8_t*)serial_info->data_const
+         : (const uint8_t*)serial_info->data;
+
+      RARCH_LOG("[Netplay] Savestate send CRC frame %u coremem=0x%08X\n",
+            (unsigned)netplay->run_frame_count,
+            (unsigned)netplay_savestate_coremem_crc(netplay, savestate_buf));
+
       /* Send this to every peer. */
       if (netplay->compress_nil.compression_backend)
          netplay_send_savestate(netplay, serial_info, 0,
